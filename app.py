@@ -181,17 +181,20 @@ h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; lette
 /* ---- tabs styled as folder tabs so they read as clickable */
 .explore {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.7rem; color: {INK}; margin: 2.2rem 0 .1rem 0 !important; }}
 .explore-note {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; margin: 0 0 .6rem 0 !important; }}
-.stTabs [data-baseweb="tab-list"] {{ gap: 6px; flex-wrap: wrap; border-bottom: 2px solid {INK}; }}
-.stTabs [data-baseweb="tab"] {{ height: auto; background: #E9ECF1; border: 1.5px solid {RULE};
-    border-bottom: none; border-radius: 9px 9px 0 0; padding: .65rem 1.15rem; margin-bottom: 0; }}
-.stTabs [data-baseweb="tab"] p {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.02rem; color: {INK}; }}
-.stTabs [data-baseweb="tab"]:hover {{ background: #FFFFFF; border-color: {INK}; }}
-.stTabs [data-baseweb="tab"][aria-selected="true"] {{ background: {INK}; border-color: {INK}; }}
-.stTabs [data-baseweb="tab"][aria-selected="true"] p {{ color: #FFFFFF; }}
-.stTabs [data-baseweb="tab"]:focus-visible {{ outline: 3px solid {CORAL}; outline-offset: 2px; }}
-.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {{ display: none; }}
-.stTabs [data-baseweb="tab-panel"] {{ background: #FFFFFF; border: 1px solid {RULE}; border-top: none;
-    border-radius: 0 0 10px 10px; padding: 1.2rem 1.4rem 1.4rem; }}
+/* ARIA roles are used instead of internal class names, so this works across Streamlit versions */
+div[role="tablist"] {{ gap: 6px !important; flex-wrap: wrap; border-bottom: 2px solid {INK} !important; }}
+button[role="tab"] {{ height: auto !important; background: #E9ECF1 !important; border: 1.5px solid {RULE} !important;
+    border-bottom: none !important; border-radius: 9px 9px 0 0 !important; padding: .65rem 1.15rem !important;
+    margin: 0 !important; box-shadow: none !important; }}
+button[role="tab"] p {{ font-family: 'Archivo', sans-serif !important; font-weight: 700 !important;
+    font-size: 1.02rem !important; color: {INK} !important; }}
+button[role="tab"]:hover {{ background: #FFFFFF !important; border-color: {INK} !important; }}
+button[role="tab"][aria-selected="true"] {{ background: {INK} !important; border-color: {INK} !important; }}
+button[role="tab"][aria-selected="true"] p {{ color: #FFFFFF !important; }}
+button[role="tab"]:focus-visible {{ outline: 3px solid {CORAL} !important; outline-offset: 2px; }}
+[data-baseweb="tab-highlight"], [data-baseweb="tab-border"] {{ display: none !important; }}
+div[role="tabpanel"] {{ background: #FFFFFF; border: 1px solid {RULE}; border-top: none;
+    border-radius: 0 0 10px 10px; padding: 1.2rem 1.4rem 1.4rem !important; }}
 
 /* ---- data-scope labels in the Why tab */
 .phase {{ font-family: 'Source Sans 3', sans-serif; color: {INK}; margin: 1.3rem 0 .5rem 0 !important;
@@ -967,13 +970,47 @@ with tab_report:
     table.index = ["Legitimate", "Spam", "Average of both classes", "Average weighted by size"]
     table["Emails"] = table["Emails"].astype(int)
     st.dataframe(table.style.format({"Precision": "{:.4f}", "Recall": "{:.4f}", "F1": "{:.4f}"}))
-    st.markdown(
-        f"In plain words: it kept **{tn} of {n_legit}** legitimate emails ({tn / max(n_legit, 1):.1%}) "
-        f"and caught **{tp} of {n_spam}** spam ({tp / max(n_spam, 1):.1%}). When it says *spam* it is right "
-        f"{tp / max(tp + fp, 1):.1%} of the time; when it says *legitimate* it is right "
-        f"{tn / max(tn + fn, 1):.1%} of the time.")
-    st.caption("Precision: when the model names this class, how often it is right. "
-               "Recall: of all emails that really are this class, how many it found. F1: the balance of the two.")
+    st.markdown(f"**Overall accuracy: {rep['accuracy']:.4f}** ({tn + tp} of {len(y):,} emails sorted correctly).")
+
+    rc1, rc2 = st.columns([1.1, 1], gap="large")
+    with rc1:
+        fig, ax = new_fig(6, 3.3)
+        metrics_ = ["Precision", "Recall", "F1"]
+        x = np.arange(len(metrics_))
+        legit_vals = [table.loc["Legitimate", m] for m in metrics_]
+        spam_vals = [table.loc["Spam", m] for m in metrics_]
+        ax.bar(x - 0.18, legit_vals, 0.34, color=TEAL, label="Legitimate emails")
+        ax.bar(x + 0.18, spam_vals, 0.34, color=CORAL, label="Spam emails")
+        for xi, (lv, sv) in enumerate(zip(legit_vals, spam_vals)):
+            ax.text(xi - 0.18, lv + 0.004, f"{lv:.3f}", ha="center", va="bottom", fontsize=9, color=INK)
+            ax.text(xi + 0.18, sv + 0.004, f"{sv:.3f}", ha="center", va="bottom", fontsize=9, color=INK)
+        ax.set_xticks(x); ax.set_xticklabels(metrics_)
+        ax.set_ylim(max(0, min(legit_vals + spam_vals) - 0.12), 1.04)
+        ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False, fontsize=9.5)
+        style_axes(ax, grid_axis="y")
+        plt.tight_layout(); st.pyplot(fig); plt.close(fig)
+    with rc2:
+        st.markdown(
+            f"**In plain words.** {model_name} kept **{tn} of {n_legit}** legitimate emails "
+            f"({tn / max(n_legit, 1):.1%}) and caught **{tp} of {n_spam}** spam ({tp / max(n_spam, 1):.1%}).\n\n"
+            f"When it says *spam* it is right {tp / max(tp + fp, 1):.1%} of the time; when it says "
+            f"*legitimate* it is right {tn / max(tn + fn, 1):.1%} of the time.")
+        st.caption("Precision: when the model names this class, how often it is right. "
+                   "Recall: of all emails that really are this class, how many it found. "
+                   "F1: the balance of the two. Support (Emails): how many emails of that class were tested. "
+                   "'Average of both classes' treats the two classes equally; 'Average weighted by size' "
+                   "gives the larger class (legitimate) more weight.")
+
+    st.markdown("<div class='section-title'>Per-class F1 for all five models</div>"
+                "<div class='section-note'>The same report, condensed, so the models can be compared "
+                "class by class.</div>", unsafe_allow_html=True)
+    rows_ = {}
+    for n in names:
+        r_ = classification_report(y, runs[n]["pred"], labels=[0, 1], output_dict=True, zero_division=0)
+        rows_[label_of(n)] = {"Legitimate F1": r_["0"]["f1-score"], "Spam F1": r_["1"]["f1-score"],
+                              "Average F1": r_["macro avg"]["f1-score"], "Accuracy": r_["accuracy"]}
+    per_class = pd.DataFrame(rows_).T
+    st.dataframe(per_class.style.format("{:.4f}").highlight_max(axis=0, props="background-color:#E2F4F1; font-weight:700"))
 
 # ---- Where it went wrong
 with tab_err:
