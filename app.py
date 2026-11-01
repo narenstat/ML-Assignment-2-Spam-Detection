@@ -1,11 +1,13 @@
 """
-Kernel Post - five trained spam filters sorting email they have never seen
+Spamurai - five trained models slicing spam from email they have never seen
 ML Assignment 2, M.Tech AIML, BITS Pilani WILP
 Built by Naren (2026AJ05871)
 
 The app only LOADS the models saved by the training notebook (model/*.pkl)
 and scores the test emails. Nothing is retrained here.
 """
+import ast
+import base64
 import io
 import json
 import textwrap
@@ -19,113 +21,145 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
 from scipy.stats import chi2
 from sklearn.metrics import (
     accuracy_score, classification_report, confusion_matrix, f1_score,
     matthews_corrcoef, precision_score, recall_score, roc_auc_score,
 )
 
-# Change the name here and it updates the whole app and the PDF report
-APP_NAME = "Kernel Post"
-APP_TAGLINE = "Spam detection with five classifiers, led by an RBF-kernel SVM"
+APP_NAME = "Spamurai"
+APP_TAGLINE = "Five machine-learning models sort emails they have never seen. The sharpest blade wins."
 AUTHOR = "Naren (2026AJ05871)"
 
 HERE = Path(__file__).parent
 MODEL_DIR = HERE / "model"
 SAMPLE_CSV = HERE / "test_data.csv"
+MASCOT_GIF = HERE / "assets" / "spamurai.gif"
 
-# ---------------------------------------------------------------- palette
-PAPER, INK, MUTED = "#F3F5F8", "#1C2230", "#5E6779"
-POSTAL_BLUE, AIRMAIL_RED, SORTED_GREEN = "#2350A0", "#C2303A", "#2E7D5B"
-RULE, GREY_BAR = "#D5DBE4", "#B4BDCB"
+# ---------------------------------------------------------------- palette (taken from the logo)
+PAPER, INK, MUTED = "#F6F7F9", "#17243A", "#5B6577"
+CORAL, CORAL_DARK = "#F15A4A", "#B8382A"          # spam / mistakes
+TEAL, TEAL_DARK = "#2BB7A5", "#1D7C70"            # legitimate / correct / final model
+GOLD = "#E3A72F"
+RULE, GREY_BAR = "#DDE1E8", "#BAC2CF"
+# names used by the chart helpers
+POSTAL_BLUE, AIRMAIL_RED, SORTED_GREEN = INK, CORAL, TEAL
 
+SHORT = {"Logistic Regression": "LR", "Decision Tree": "DT", "KNN": "KNN", "Naive Bayes": "NB", "SVM": "SVM"}
 MODEL_NOTES = {
     "Logistic Regression": "Weighs the evidence from every feature, adds it up and turns the total into a spam score.",
-    "Decision Tree": "Asks a chain of yes/no questions about the email. Pruned so it learns rules, not individual emails.",
-    "KNN": "Finds the most similar emails it saw in training and lets them vote; closer ones count more.",
+    "Decision Tree": "Asks a chain of yes/no questions about the email, like a flowchart.",
+    "KNN": "Finds the most similar emails it saw in training and lets them vote.",
     "Naive Bayes": "Treats each feature as independent evidence and multiplies the odds together.",
-    "SVM": "Draws a curved boundary between spam and legitimate mail, using many features at once.",
+    "SVM": "Draws a curved boundary between spam and real mail, using many features at once.",
 }
-POSTMARK_NAME = {"Logistic Regression": "LOGISTIC REGRESSION", "Decision Tree": "DECISION TREE",
-                 "KNN": "NEAREST NEIGHBOURS", "Naive Bayes": "NAIVE BAYES", "SVM": "SUPPORT VECTOR MACHINE"}
 METRIC_MEANING = {
     "Accuracy":  "Share of all emails sorted correctly",
-    "AUC":       "How well spam is ranked above legitimate mail (1 = perfect, 0.5 = guessing)",
+    "AUC":       "How well spam is ranked above real mail (1 = perfect, 0.5 = guessing)",
     "Precision": "When it says spam, how often it is right",
     "Recall":    "Share of the real spam it catches",
     "F1":        "Balance between precision and recall",
     "MCC":       "Overall agreement with the truth, fair even with uneven classes (-1 to 1)",
 }
 
-st.set_page_config(page_title=f"{APP_NAME} | Spam filter evaluation", page_icon="✉️", layout="wide")
+st.set_page_config(page_title=f"{APP_NAME} | Spam detection", page_icon="⚔️", layout="wide")
 
 # ---------------------------------------------------------------- styles
 st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Source+Sans+3:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap');
 
-.block-container {{ padding-top: 1.6rem; max-width: 1250px; }}
+.block-container {{ padding-top: 1.4rem; max-width: 1250px; }}
 [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li {{
     font-family: 'Source Sans 3', sans-serif; font-size: 1.02rem; line-height: 1.5; }}
 h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; letter-spacing: -0.01em; }}
 
-/* ---- masthead with airmail band and postmark */
-.airmail {{ height: 12px; border-radius: 2px; margin-bottom: 1.1rem;
-    background: repeating-linear-gradient(135deg, {AIRMAIL_RED} 0 16px, {PAPER} 16px 26px,
-                                                 {POSTAL_BLUE} 26px 42px, {PAPER} 42px 52px); }}
-.masthead {{ display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }}
-.masthead h1 {{ font-family: 'Archivo', sans-serif; font-stretch: 78%; font-weight: 800;
-    font-size: 3.1rem; line-height: 1; margin: 0 0 .5rem 0; color: {INK}; }}
-.masthead p {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; font-size: 1.1rem;
-    max-width: 60ch; margin: 0; }}
-.postmark {{ flex-shrink: 0; transform: rotate(-9deg);
-    animation: stamp .6s cubic-bezier(.2, .9, .3, 1.25) .15s both; }}
+/* ---- header: logo text + mascot */
+.hero-head {{ display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; }}
+.logo {{ font-family: Verdana, 'DejaVu Sans', 'Segoe UI', sans-serif; font-weight: 700;
+    font-size: 4.4rem; line-height: 1.05; margin: 0; letter-spacing: -0.01em; }}
+.logo .spam {{ color: {CORAL}; position: relative; display: inline-block; }}
+.logo .spam::after {{ content: ""; position: absolute; left: -.04em; right: .02em; bottom: -.1em;
+    height: .1em; border-radius: 99px; background: {TEAL}; }}
+.logo .urai {{ color: {INK}; }}
+.tagline {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; font-size: 1.18rem;
+    margin: 1.1rem 0 0 0; max-width: 44ch; }}
+.mascot {{ width: 340px; max-width: 100%; height: auto; }}
+
+/* ---- verdict hero */
+.verdict {{ background: #FFFFFF; border: 1px solid {RULE}; border-radius: 12px; padding: 1.2rem 1.4rem;
+    border-top: 5px solid {TEAL}; }}
+.verdict-top {{ display: flex; align-items: center; gap: 1rem; margin-bottom: .9rem; }}
+.verdict-top h3 {{ margin: 0; font-size: 1.45rem; }}
+.verdict-top p {{ margin: .15rem 0 0 0; color: {MUTED}; font-family: 'Source Sans 3', sans-serif; }}
+.belt {{ font-family: 'Archivo', sans-serif; font-weight: 800; color: #FFFFFF; background: {TEAL_DARK};
+    border-radius: 8px; padding: .5rem .75rem; text-align: center; line-height: 1.05; font-size: .8rem; }}
+.belt b {{ display: block; font-size: 1.55rem; }}
+.stats {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem; }}
+.stat {{ background: {PAPER}; border-radius: 9px; padding: .75rem .85rem; }}
+.stat .n {{ font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 2.1rem; color: {INK}; line-height: 1; }}
+.stat .l {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; font-size: .92rem; margin-top: .3rem; line-height: 1.3; }}
+.stat.good .n {{ color: {TEAL_DARK}; }}
+.reasons {{ margin: .9rem 0 0 0; padding-left: 1.1rem; font-family: 'Source Sans 3', sans-serif; color: {INK}; }}
+.reasons li {{ margin: .15rem 0; }}
+
+/* ---- evidence pack: the whole column becomes a dark card */
+[data-testid="stColumn"]:has(.evidence), [data-testid="column"]:has(.evidence) {{
+    background: {INK}; border-radius: 12px; padding: 1.2rem 1.3rem 1.1rem; }}
+.evidence {{ color: #FFFFFF; font-family: 'Source Sans 3', sans-serif; }}
+.evidence .tag {{ display: inline-block; background: {GOLD}; color: {INK}; font-weight: 700; font-size: .82rem;
+    border-radius: 99px; padding: .15rem .6rem; }}
+.evidence h3 {{ color: #FFFFFF !important; margin: .55rem 0 .35rem 0; font-size: 1.35rem; }}
+.evidence p {{ color: #D9DEE7; margin: 0 0 .5rem 0; }}
+.evidence ul {{ margin: 0 0 .8rem 0; padding-left: 1.1rem; color: #D9DEE7; }}
+.evidence li {{ margin: .1rem 0; }}
+[data-testid="stColumn"]:has(.evidence) [data-testid="stDownloadButton"] button,
+[data-testid="column"]:has(.evidence) [data-testid="stDownloadButton"] button {{
+    width: 100%; background: {CORAL}; border: none; border-radius: 9px; padding: .75rem 1rem; }}
+[data-testid="stColumn"]:has(.evidence) [data-testid="stDownloadButton"] button p,
+[data-testid="column"]:has(.evidence) [data-testid="stDownloadButton"] button p {{
+    color: #FFFFFF; font-weight: 700; font-size: 1.05rem; }}
+[data-testid="stColumn"]:has(.evidence) [data-testid="stDownloadButton"] button:hover,
+[data-testid="column"]:has(.evidence) [data-testid="stDownloadButton"] button:hover {{ background: {CORAL_DARK}; }}
+
+/* ---- how to use: three steps */
+.howto {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; margin: 1.3rem 0 .4rem 0; }}
+.step {{ display: flex; gap: .75rem; align-items: flex-start; background: #FFFFFF; border: 1px solid {RULE};
+    border-radius: 10px; padding: .8rem .95rem; font-family: 'Source Sans 3', sans-serif; }}
+.step .num {{ flex-shrink: 0; width: 2rem; height: 2rem; border-radius: 50%; background: {TEAL}; color: #FFFFFF;
+    font-family: 'Archivo', sans-serif; font-weight: 800; display: flex; align-items: center; justify-content: center; }}
+.step b {{ font-family: 'Archivo', sans-serif; color: {INK}; font-size: 1.02rem; }}
+.step span {{ display: block; color: {MUTED}; font-size: .93rem; line-height: 1.35; margin-top: .1rem; }}
+
+/* ---- results header with a hanko-style seal */
+.res-head {{ display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1.8rem 0 .4rem 0; }}
+.res-head h2 {{ margin: 0; font-size: 1.7rem; }}
+.res-head p {{ margin: .2rem 0 0 0; color: {MUTED}; font-family: 'Source Sans 3', sans-serif; }}
+.hanko {{ flex-shrink: 0; width: 96px; height: 96px; border: 4px solid {CORAL}; border-radius: 14px;
+    color: {CORAL}; text-align: center; font-family: 'Archivo', sans-serif; display: flex; flex-direction: column;
+    justify-content: center; transform: rotate(-8deg); animation: stamp .6s cubic-bezier(.2, .9, .3, 1.25) .1s both; }}
+.hanko b {{ font-size: 1.5rem; font-weight: 800; line-height: 1; }}
+.hanko span {{ font-size: .78rem; font-weight: 700; margin-top: .25rem; }}
 @keyframes stamp {{
-    0%   {{ transform: rotate(-9deg) scale(1.7); opacity: 0; }}
-    55%  {{ transform: rotate(-9deg) scale(.93); opacity: 1; }}
-    100% {{ transform: rotate(-9deg) scale(1);   opacity: 1; }} }}
-.postmark .arc {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 11.5px;
-    letter-spacing: .08em; fill: {POSTAL_BLUE}; }}
-.postmark .num {{ font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 34px; fill: {POSTAL_BLUE}; }}
-@media (prefers-reduced-motion: reduce) {{ .postmark {{ animation: none; }} }}
+    0%   {{ transform: rotate(-8deg) scale(1.8); opacity: 0; }}
+    55%  {{ transform: rotate(-8deg) scale(.92); opacity: 1; }}
+    100% {{ transform: rotate(-8deg) scale(1);   opacity: 1; }} }}
+@media (prefers-reduced-motion: reduce) {{ .hanko {{ animation: none; }} }}
 
-/* ---- about panel */
-.about {{ display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.8rem; background: #FFFFFF;
-    border: 1px solid {RULE}; border-top: 4px solid {POSTAL_BLUE}; border-radius: 8px;
-    padding: 1.1rem 1.4rem 1.2rem; margin: 1.3rem 0 .3rem 0; font-family: 'Source Sans 3', sans-serif; color: {INK}; }}
-.about h3 {{ margin: 0 0 .4rem 0; font-size: 1.2rem; }}
-.about p {{ margin: 0 0 .55rem 0; line-height: 1.5; }}
-.about ol {{ margin: 0; padding-left: 1.25rem; }}
-.about li {{ margin: .15rem 0 .4rem 0; line-height: 1.45; }}
-.about .key {{ display: flex; flex-wrap: wrap; gap: .3rem 1rem; margin-top: .4rem; font-size: .93rem; color: {MUTED}; }}
-.about .sw {{ display: inline-block; width: .8rem; height: .8rem; border-radius: 2px;
-    vertical-align: -1px; margin-right: .3rem; }}
-
-/* ---- final model banner */
-.verdict {{ display: grid; grid-template-columns: auto 1fr; gap: 1.2rem; align-items: center;
-    background: #FFFFFF; border: 1px solid {RULE}; border-left: 8px solid {SORTED_GREEN};
-    border-radius: 8px; padding: 1rem 1.3rem; margin: 1.2rem 0 .5rem 0; }}
-.verdict .seal {{ font-family: 'Archivo', sans-serif; font-weight: 800; font-stretch: 80%;
-    color: {SORTED_GREEN}; font-size: 1.05rem; line-height: 1.15; text-align: center;
-    border: 2.5px solid {SORTED_GREEN}; border-radius: 6px; padding: .45rem .7rem; transform: rotate(-4deg); }}
-.verdict .seal b {{ display: block; font-size: 1.9rem; }}
-.verdict h3 {{ margin: 0 0 .3rem 0; font-size: 1.3rem; }}
-.verdict ul {{ margin: 0; padding-left: 1.1rem; font-family: 'Source Sans 3', sans-serif; color: {INK}; }}
-.verdict li {{ margin: .12rem 0; }}
-
-.section-title {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.35rem;
-    color: {INK}; margin: 1.4rem 0 .2rem 0; }}
+.section-title {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.3rem;
+    color: {INK}; margin: 1.2rem 0 .2rem 0; }}
 .section-note {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; margin: 0 0 .8rem 0; }}
 
-/* ---- confusion matrix drawn as four sorting trays */
+/* ---- confusion matrix drawn as four trays */
 .trays {{ display: grid; grid-template-columns: 8.5rem 1fr 1fr; gap: 6px; font-family: 'Source Sans 3', sans-serif; }}
 .trays .head {{ font-weight: 600; color: {MUTED}; font-size: .92rem; align-self: end; padding: 0 .4rem .2rem; }}
 .trays .side {{ font-weight: 600; color: {MUTED}; font-size: .92rem; align-self: center; }}
-.tray {{ border-radius: 6px; padding: .9rem 1rem; min-height: 6.2rem; }}
+.tray {{ border-radius: 8px; padding: .9rem 1rem; min-height: 6.2rem; }}
 .tray .n {{ display: block; font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 2.3rem; line-height: 1; }}
 .tray .t {{ display: block; margin-top: .35rem; font-size: .95rem; }}
-.tray.ok  {{ background: #E3EFE9; color: #1F5A41; border-left: 5px solid {SORTED_GREEN}; }}
-.tray.bad {{ background: #F7E4E5; color: #8E1F27; border-left: 5px solid {AIRMAIL_RED}; }}
+.tray.ok  {{ background: #E2F4F1; color: #17665C; border-left: 5px solid {TEAL}; }}
+.tray.bad {{ background: #FDE8E5; color: #A3291C; border-left: 5px solid {CORAL}; }}
 
 /* ---- scorecard */
 .score {{ display: grid; grid-template-columns: 6.2rem 4.6rem 1fr 5.6rem; gap: .35rem .8rem;
@@ -133,41 +167,46 @@ h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; lette
 .score .m {{ font-weight: 700; color: {INK}; }}
 .score .v {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.15rem; color: {INK}; }}
 .score .bar {{ background: {RULE}; border-radius: 3px; height: 9px; position: relative; }}
-.score .bar span {{ position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: {POSTAL_BLUE}; }}
+.score .bar span {{ position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: {INK}; }}
 .score .r {{ color: {MUTED}; font-size: .9rem; text-align: right; white-space: nowrap; }}
 .score .d {{ grid-column: 1 / -1; color: {MUTED}; font-size: .88rem; margin: -.2rem 0 .45rem 0; }}
 
 /* ---- tabs styled as folder tabs so they read as clickable */
-.explore {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.35rem; color: {INK};
-    margin: 2rem 0 .1rem 0; }}
+.explore {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.7rem; color: {INK}; margin: 2.2rem 0 .1rem 0; }}
 .explore-note {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; margin: 0 0 .6rem 0; }}
-.stTabs [data-baseweb="tab-list"] {{ gap: 6px; flex-wrap: wrap; border-bottom: 2px solid {POSTAL_BLUE}; }}
-.stTabs [data-baseweb="tab"] {{ height: auto; background: #E4E9F0; border: 1.5px solid {RULE};
+.stTabs [data-baseweb="tab-list"] {{ gap: 6px; flex-wrap: wrap; border-bottom: 2px solid {INK}; }}
+.stTabs [data-baseweb="tab"] {{ height: auto; background: #E9ECF1; border: 1.5px solid {RULE};
     border-bottom: none; border-radius: 9px 9px 0 0; padding: .65rem 1.15rem; margin-bottom: 0; }}
 .stTabs [data-baseweb="tab"] p {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.02rem; color: {INK}; }}
-.stTabs [data-baseweb="tab"]:hover {{ background: #FFFFFF; border-color: {POSTAL_BLUE}; }}
-.stTabs [data-baseweb="tab"][aria-selected="true"] {{ background: {POSTAL_BLUE}; border-color: {POSTAL_BLUE}; }}
+.stTabs [data-baseweb="tab"]:hover {{ background: #FFFFFF; border-color: {INK}; }}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {{ background: {INK}; border-color: {INK}; }}
 .stTabs [data-baseweb="tab"][aria-selected="true"] p {{ color: #FFFFFF; }}
-.stTabs [data-baseweb="tab"]:focus-visible {{ outline: 3px solid {AIRMAIL_RED}; outline-offset: 2px; }}
+.stTabs [data-baseweb="tab"]:focus-visible {{ outline: 3px solid {CORAL}; outline-offset: 2px; }}
 .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {{ display: none; }}
 .stTabs [data-baseweb="tab-panel"] {{ background: #FFFFFF; border: 1px solid {RULE}; border-top: none;
-    border-radius: 0 0 8px 8px; padding: 1.2rem 1.4rem 1.4rem; }}
+    border-radius: 0 0 10px 10px; padding: 1.2rem 1.4rem 1.4rem; }}
 
 /* ---- mistake cards */
 .cards2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: .4rem 0 1rem 0; }}
-.mcard {{ border-radius: 8px; padding: 1rem 1.2rem; font-family: 'Source Sans 3', sans-serif; }}
+.mcard {{ border-radius: 10px; padding: 1rem 1.2rem; font-family: 'Source Sans 3', sans-serif; }}
 .mcard .n {{ font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 2.6rem; line-height: 1; }}
 .mcard .h {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.1rem; margin: .2rem 0; }}
-.mcard.fa {{ background: #F7E4E5; color: #8E1F27; }}
-.mcard.ms {{ background: #FBEFD9; color: #7A4A06; }}
+.mcard.fa {{ background: #FDE8E5; color: #A3291C; }}
+.mcard.ms {{ background: #FCF1DC; color: #7A4A06; }}
 
-.profile {{ background: #FFFFFF; border: 1px solid {RULE}; border-radius: 6px; padding: .8rem .9rem;
+/* ---- sidebar model card */
+.profile {{ background: #FFFFFF; border: 1px solid {RULE}; border-radius: 10px; padding: .85rem .95rem;
     font-family: 'Source Sans 3', sans-serif; color: {INK}; font-size: .95rem; }}
-.profile b {{ font-family: 'Archivo', sans-serif; }}
+.profile b.t {{ font-family: 'Archivo', sans-serif; font-size: 1.05rem; }}
+.profile .final {{ display: inline-block; background: {TEAL_DARK}; color: #FFFFFF; font-size: .75rem; font-weight: 700;
+    border-radius: 99px; padding: .05rem .5rem; margin-left: .3rem; vertical-align: 2px; }}
+.profile ul {{ margin: .3rem 0 .4rem 0; padding-left: 1.05rem; }}
+.profile li {{ margin: .12rem 0; }}
+.profile .tech {{ color: {MUTED}; font-size: .82rem; }}
 .footer {{ margin-top: 2.5rem; padding-top: .8rem; border-top: 1px solid {RULE};
     font-family: 'Source Sans 3', sans-serif; color: {MUTED}; font-size: .9rem; }}
-@media (max-width: 760px) {{ .about, .cards2, .verdict {{ grid-template-columns: 1fr; }}
-    .masthead {{ flex-wrap: wrap; }} }}
+@media (max-width: 900px) {{ .stats {{ grid-template-columns: repeat(2, 1fr); }} .howto {{ grid-template-columns: 1fr; }} }}
+@media (max-width: 760px) {{ .cards2 {{ grid-template-columns: 1fr; }} .logo {{ font-size: 3.2rem; }} }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -213,7 +252,7 @@ def check_file(df, features, target):
     return problems
 
 
-@st.cache_data(show_spinner="Sorting the emails with all five filters...")
+@st.cache_data(show_spinner="Sorting the emails with all five models...")
 def sort_mail(csv_bytes):
     meta, models, _ = load_bundle()
     df = pd.read_csv(io.BytesIO(csv_bytes))
@@ -315,15 +354,15 @@ def draw_head_to_head(ax, correct, final, names_):
         ax.text(a, i, f"  {a}", va="center", fontweight="bold", color=INK)
         ax.text(-b, i, f"{b}  ", va="center", ha="right", fontweight="bold", color=INK)
         ax.text(0, i - 0.38, f"p = {p:.3f}: {'real difference' if p < 0.05 else 'could be chance'}",
-                ha="center", va="bottom", fontsize=9.5, color=SORTED_GREEN if p < 0.05 else AIRMAIL_RED)
+                ha="center", va="bottom", fontsize=9.5, color=TEAL_DARK if p < 0.05 else CORAL_DARK)
     ax.axvline(0, color=INK, lw=1)
     ax.set_yticks(range(len(others)))
     ax.set_yticklabels([f"{final} vs {n}" for n in others])
     ax.set_xlim(-lim * 1.35, lim * 1.35)
     ax.set_ylim(len(others) - 0.5, -0.9)
     ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{abs(v):.0f}"))
-    ax.set_xlabel(f"emails only the other filter got right   |   emails only {final} got right", color=MUTED)
-    chart_title(ax, "Step 3: head to head on the emails where two filters disagree")
+    ax.set_xlabel(f"emails only the other model got right   |   emails only {final} got right", color=MUTED)
+    chart_title(ax, "Step 3: head to head on the emails where two models disagree")
     style_axes(ax)
 
 
@@ -423,16 +462,31 @@ def build_report_pdf(csv_bytes, final):
         fig = plt.figure(figsize=A4)
         fig.patch.set_facecolor("white")
         fig.add_artist(plt.Rectangle((0, 0.965), 1, 0.035, transform=fig.transFigure,
-                                     color=POSTAL_BLUE, lw=0))
-        fig.text(0.06, 0.88, f"Why {final} is the final model", fontsize=26, fontweight="bold", color=INK)
-        fig.text(0.06, 0.83, f"{APP_NAME}: {APP_TAGLINE}. Report generated {date.today():%d %B %Y} "
-                             f"from {len(y):,} test emails.", fontsize=11, color=MUTED)
-        yy = 0.74
+                                     color=INK, lw=0))
+        logo = HPacker(children=[TextArea("Spam", textprops=dict(color=CORAL, fontsize=20, fontweight="bold")),
+                                 TextArea("urai", textprops=dict(color=INK, fontsize=20, fontweight="bold"))],
+                       pad=0, sep=0)
+        fig.add_artist(AnchoredOffsetbox(loc="upper left", child=logo, frameon=False,
+                                         bbox_to_anchor=(0.055, 0.955), bbox_transform=fig.transFigure))
+        if MASCOT_GIF.exists():
+            try:
+                from PIL import Image
+                gif_img = Image.open(MASCOT_GIF)
+                gif_img.seek(gif_img.n_frames - 1)
+                ax_m = fig.add_axes([0.72, 0.74, 0.24, 0.2]); ax_m.axis("off")
+                ax_m.imshow(np.asarray(gif_img.convert("RGBA")))
+            except Exception:
+                pass
+        fig.text(0.06, 0.8, f"Why {final} is the final model", fontsize=26, fontweight="bold", color=INK)
+        fig.text(0.06, 0.755, APP_TAGLINE, fontsize=11, color=MUTED)
+        fig.text(0.06, 0.725, f"Report generated {date.today():%d %B %Y} from {len(y):,} test emails.",
+                 fontsize=11, color=MUTED)
+        yy = 0.655
         fig.text(0.06, yy, "The evidence", fontsize=15, fontweight="bold", color=INK)
         yy -= 0.05
         for k, r in enumerate(reasons, 1):
             lines = textwrap.wrap(r, 115)
-            fig.text(0.07, yy, f"{k}.", fontsize=11.5, fontweight="bold", color=SORTED_GREEN)
+            fig.text(0.07, yy, f"{k}.", fontsize=11.5, fontweight="bold", color=TEAL_DARK)
             for ln in lines:
                 fig.text(0.095, yy, ln, fontsize=11.5, color=INK)
                 yy -= 0.035
@@ -441,7 +495,7 @@ def build_report_pdf(csv_bytes, final):
         fig.text(0.06, yy, "The trade-off", fontsize=15, fontweight="bold", color=INK)
         yy -= 0.05
         kb = {n: (MODEL_DIR / meta["model_files"][n]).stat().st_size / 1024 for n in names_}
-        trade = (f"{final} is not the cheapest filter: its saved model is {kb[final]:,.0f} KB and it scores "
+        trade = (f"{final} is not the cheapest model: its saved model is {kb[final]:,.0f} KB and it scores "
                  f"1,000 emails in about {runs[final]['ms_per_1000']:,.0f} ms on the app server. "
                  f"{runner} is the runner-up. For a spam filter, losing fewer genuine emails to the spam "
                  f"folder is worth the extra size and time.")
@@ -466,7 +520,7 @@ def build_report_pdf(csv_bytes, final):
 
         # page 3: confusion matrices + mistakes
         fig = plt.figure(figsize=A4); fig.patch.set_facecolor("white")
-        fig.text(0.06, 0.92, "Step 2 (continued): where each filter put the test emails",
+        fig.text(0.06, 0.92, "Step 2 (continued): where each model put the test emails",
                  fontsize=14, fontweight="bold", color=INK)
         gs = fig.add_gridspec(2, 5, left=0.08, right=0.97, top=0.84, bottom=0.1, hspace=0.6, wspace=0.7)
         for k, n in enumerate(names_):
@@ -513,20 +567,52 @@ def build_report_pdf(csv_bytes, final):
     return buf.getvalue()
 
 
-def postmark_svg(name, f1):
-    return f"""
-<svg class="postmark" viewBox="0 0 170 170" width="160" height="160" role="img"
-     aria-label="{name}: F1 {f1:.3f} on this file">
-  <defs>
-    <path id="pm-top" d="M 27,85 a 58,58 0 1,1 116,0"/>
-    <path id="pm-bot" d="M 22,85 a 63,63 0 0,0 126,0"/>
-  </defs>
-  <circle cx="85" cy="85" r="78" fill="none" stroke="{POSTAL_BLUE}" stroke-width="3"/>
-  <circle cx="85" cy="85" r="47" fill="none" stroke="{POSTAL_BLUE}" stroke-width="1.3"/>
-  <text class="arc"><textPath href="#pm-top" startOffset="50%" text-anchor="middle">{POSTMARK_NAME.get(name, name.upper())}</textPath></text>
-  <text class="arc"><textPath href="#pm-bot" startOffset="50%" text-anchor="middle">F1 ON THIS FILE</textPath></text>
-  <text class="num" x="85" y="97" text-anchor="middle">{f1:.3f}</text>
-</svg>"""
+@st.cache_data
+def mascot_b64():
+    return base64.b64encode(MASCOT_GIF.read_bytes()).decode() if MASCOT_GIF.exists() else ""
+
+
+def plain_settings(name, params, summary):
+    """Turn tuned hyperparameters into plain English for non-technical readers."""
+    try:
+        p = ast.literal_eval(params) if isinstance(params, str) and params.strip().startswith("{") else {}
+    except (ValueError, SyntaxError):
+        p = {}
+    out = []
+    if name == "SVM":
+        C, g = p.get("C"), p.get("gamma")
+        if C is not None:
+            out.append("Allowed to bend its boundary around tricky emails" if C >= 5 else
+                       "Balances a smooth boundary against fitting every email" if C >= 1 else
+                       "Keeps a smooth boundary and tolerates a few misfits")
+        if g is not None:
+            out.append("How far each email's influence reaches is set automatically from the data"
+                       if g == "scale" else f"How far each email's influence reaches is fixed at {g}")
+    elif name == "Logistic Regression":
+        C = p.get("C")
+        if C is not None:
+            out.append("Kept deliberately simple, so it learns broad patterns rather than quirks" if C <= 0.1 else
+                       "Moderately simple" if C <= 1 else "Allowed to fit fine details")
+    elif name == "KNN":
+        k, wts = p.get("n_neighbors"), p.get("weights")
+        if k:
+            out.append(f"Looks at the {k} most similar training emails")
+        if wts:
+            out.append("Closer emails get a bigger vote" if wts == "distance" else "Every neighbour gets an equal vote")
+    elif name == "Decision Tree":
+        pr = (summary or {}).get("pruning")
+        if p.get("criterion"):
+            out.append("Each question is chosen to split spam from real mail as cleanly as possible")
+        if pr:
+            out.append(f"Pruned from {pr['leaves_before']} to {pr['leaves_after']} end points, so it learns "
+                       f"rules instead of memorising emails")
+        elif p.get("max_depth") is None and "max_depth" in p:
+            out.append("No limit on how many questions it can ask")
+    elif name == "Naive Bayes":
+        out.append("Nothing to tune: it learns the typical value of each feature for spam and for real mail")
+    tech = ", ".join(f"{k} = {v}" for k, v in p.items()) if p else "none"
+    return out or ["Default settings"], tech
+
 
 
 # ================================================================ page
@@ -541,7 +627,7 @@ label_of = lambda n: f"{n}  (final model)" if n == FINAL else n
 with st.sidebar:
     st.markdown("### 1. Choose the test emails")
     source_choice = st.radio(
-        "Which emails should the filters sort?",
+        "Which emails should the models sort?",
         ["Test set included with this app", "Upload a CSV file"],
         help="The included file is the same test_data.csv stored in the GitHub repo: "
              "the 20% of emails held back during training.")
@@ -553,14 +639,18 @@ with st.sidebar:
             st.download_button("Download test_data.csv", SAMPLE_CSV.read_bytes(),
                                file_name="test_data.csv", mime="text/csv")
 
-    st.markdown("### 2. Pick a filter to inspect")
-    model_name = st.selectbox("Trained model", MODEL_NAMES, index=MODEL_NAMES.index(FINAL)
+    st.markdown("### 2. Choose a model")
+    model_name = st.selectbox("Model to inspect", MODEL_NAMES, index=MODEL_NAMES.index(FINAL)
                               if FINAL in MODEL_NAMES else 0, format_func=label_of)
     fsize = (MODEL_DIR / meta["model_files"][model_name]).stat().st_size / 1024
+    plain, tech = plain_settings(model_name, best_params.get(model_name, ""), summary)
     st.markdown(
-        f"<div class='profile'><b>{label_of(model_name)}</b><br>{MODEL_NOTES.get(model_name, '')}"
-        f"<br><br>Settings chosen by cross-validation: {best_params.get(model_name, '-')}"
-        f"<br>Saved model size: {fsize:,.0f} KB</div>", unsafe_allow_html=True)
+        f"<div class='profile'><b class='t'>{model_name}</b>"
+        + ("<span class='final'>final model</span>" if model_name == FINAL else "")
+        + f"<br>{MODEL_NOTES.get(model_name, '')}<br><br><b>How it was tuned</b><ul>"
+        + "".join(f"<li>{p}</li>" for p in plain)
+        + f"</ul><span class='tech'>Technical settings: {tech}<br>Saved model size: {fsize:,.0f} KB</span></div>",
+        unsafe_allow_html=True)
 
 # ---------------------------------------------------------------- data
 if source_choice == "Upload a CSV file":
@@ -571,46 +661,16 @@ else:
     source = "the test set included with this app (test_data.csv)"
 result = sort_mail(csv_bytes) if csv_bytes is not None else None
 
-# ---------------------------------------------------------------- masthead
-f1_here = result[2]["runs"][model_name]["metrics"]["F1"] if result and result[2] else None
-st.markdown("<div class='airmail'></div>", unsafe_allow_html=True)
+# ---------------------------------------------------------------- header: logo + mascot
+gif = mascot_b64()
 st.markdown(
-    f"<div class='masthead'><div><h1>{APP_NAME}</h1>"
-    f"<p>{APP_TAGLINE}, tested on emails the filters never saw during training.</p></div>"
-    + (postmark_svg(model_name, f1_here) if f1_here is not None else "") + "</div>",
-    unsafe_allow_html=True)
-
-# ---------------------------------------------------------------- about this app
-st.markdown(f"""
-<div class="about">
-  <div>
-    <h3>About this app</h3>
-    <p>{APP_NAME} checks how well five machine-learning spam filters sort email they have never seen.
-    Each filter was trained in the project notebook on 80% of the
-    <a href="https://archive.ics.uci.edu/dataset/94/spambase" target="_blank">UCI Spambase</a> emails,
-    which describe each email with 57 numbers: how often certain words and characters appear,
-    and how much of it is in capital letters.</p>
-    <p>The remaining 20% were held back as test emails. This app loads the five saved filters,
-    lets them sort those test emails, and measures how often they get it right. Nothing is retrained here.</p>
-    <div class="key">
-      <span><span class="sw" style="background:{SORTED_GREEN}"></span>correct, or the final model</span>
-      <span><span class="sw" style="background:{AIRMAIL_RED}"></span>a mistake</span>
-      <span><span class="sw" style="background:{POSTAL_BLUE}"></span>the filter you selected</span>
-    </div>
-  </div>
-  <div>
-    <h3>How to use it</h3>
-    <ol>
-      <li><b>Choose the emails</b> in the sidebar. The included test set loads automatically; to try the
-          upload, pick <i>Upload a CSV file</i>, download <i>test_data.csv</i> and upload it.</li>
-      <li><b>Pick a filter</b> in the sidebar. The confusion matrix, the metrics and the stamp at the top
-          switch to that filter.</li>
-      <li><b>Open the folder tabs</b> further down to see why {FINAL} was chosen, compare all five filters,
-          read the classification report, review the mistakes or inspect a single email.</li>
-      <li><b>Download the report</b> under the green banner for the full evidence as a PDF.</li>
-    </ol>
-  </div>
-</div>""", unsafe_allow_html=True)
+    "<div class='hero-head'><div>"
+    "<h1 class='logo'><span class='spam'>Spam</span><span class='urai'>urai</span></h1>"
+    f"<p class='tagline'>{APP_TAGLINE}</p></div>"
+    + (f"<img class='mascot' src='data:image/gif;base64,{gif}' "
+       "alt='A cartoon samurai slices a spam email in half and files the real email in the inbox tray'>"
+       if gif else "")
+    + "</div>", unsafe_allow_html=True)
 
 if csv_bytes is None:
     st.markdown("<p class='section-title'>Waiting for a file</p>"
@@ -631,34 +691,94 @@ errors = {n: int((r["pred"] != y).sum()) for n, r in runs.items()}
 correct = {n: (r["pred"] == y) for n, r in runs.items()}
 n_spam, n_legit = int(y.sum()), int((y == 0).sum())
 
-# ---------------------------------------------------------------- final model banner + report
+# ---------------------------------------------------------------- verdict hero + evidence pack
 runner, reasons = build_reasons(all_metrics, errors, correct, summary, FINAL, len(y))
-st.markdown(f"""
+fm = all_metrics.loc[FINAL]
+fewer = 1 - errors[FINAL] / max(errors[runner], 1)
+w_, l_, p_run = mcnemar(correct[FINAL], correct[runner])
+short_reasons = []
+if summary and FINAL in summary.get("cv", {}):
+    short_reasons.append(f"Picked during training: best average F1 in cross-validation "
+                         f"({summary['cv'][FINAL]['F1'][0]:.3f}).")
+short_reasons.append(f"Head to head with {runner}, it wins the disagreements {w_} to {l_} "
+                     + ("(a statistically real lead)." if p_run < 0.05 else "(p = {:.2f}).".format(p_run)))
+
+hero_l, hero_r = st.columns([2.15, 1], gap="medium")
+with hero_l:
+    st.markdown(f"""
 <div class="verdict">
-  <div class="seal">FINAL<b>{FINAL}</b>MODEL</div>
-  <div><h3>Our final choice is {FINAL}</h3>
-  <ul>{''.join(f'<li>{r}</li>' for r in reasons[:4])}</ul></div>
+  <div class="verdict-top">
+    <div class="belt">FINAL<b>{SHORT.get(FINAL, FINAL)}</b>MODEL</div>
+    <div><h3>The final model is {FINAL}</h3>
+    <p>Results on {len(y):,} test emails the models never saw during training</p></div>
+  </div>
+  <div class="stats">
+    <div class="stat good"><div class="n">{fm['Accuracy'] * 100:.1f}%</div><div class="l">of emails sorted correctly</div></div>
+    <div class="stat"><div class="n">{errors[FINAL]}</div><div class="l">mistakes out of {len(y):,}</div></div>
+    <div class="stat"><div class="n">{fm['F1']:.3f}</div><div class="l">F1 score (spam caught vs false alarms)</div></div>
+    <div class="stat good"><div class="n">{fewer:.0%}</div><div class="l">fewer mistakes than the runner-up, {runner}</div></div>
+  </div>
+  <ul class="reasons">{''.join(f'<li>{r}</li>' for r in short_reasons)}</ul>
 </div>""", unsafe_allow_html=True)
-b1, b2 = st.columns([1, 2.2])
-with b1:
-    st.download_button(f"📄 Download the 'Why {FINAL}' report (PDF)", build_report_pdf(csv_bytes, FINAL),
-                       file_name=f"why_{FINAL.lower().replace(' ', '_')}_report.pdf", mime="application/pdf")
-with b2:
-    st.markdown(f"<p class='section-note'>Scoring {source}: {len(y):,} emails, {n_legit:,} legitimate "
-                f"and {n_spam:,} spam. The same evidence, with charts, is in the <b>Why {FINAL}?</b> "
-                f"tab below.</p>", unsafe_allow_html=True)
+with hero_r:
+    st.markdown(f"""
+<div class="evidence">
+  <span class="tag">Evidence pack · PDF</span>
+  <h3>Why {FINAL} won</h3>
+  <p>A 5-page report with every chart and number behind the decision:</p>
+  <ul>
+    <li>cross-validation during training</li>
+    <li>results on the test emails</li>
+    <li>is the lead real? (significance test)</li>
+    <li>overfitting check and the trade-off</li>
+  </ul>
+</div>""", unsafe_allow_html=True)
+    st.download_button(f"⬇  Download the {FINAL} report", build_report_pdf(csv_bytes, FINAL),
+                       file_name=f"spamurai_why_{FINAL.lower().replace(' ', '_')}.pdf", mime="application/pdf")
+
+# ---------------------------------------------------------------- how to use
+st.markdown(f"""
+<div class="howto">
+  <div class="step"><div class="num">1</div><div><b>Choose the emails</b>
+    <span>In the sidebar. The test set loads by itself, or upload your own CSV.</span></div></div>
+  <div class="step"><div class="num">2</div><div><b>Choose a model</b>
+    <span>In the sidebar. The results below switch to that model.</span></div></div>
+  <div class="step"><div class="num">3</div><div><b>Open the tabs</b>
+    <span>See why {FINAL} won, compare all five, review mistakes or inspect one email.</span></div></div>
+</div>""", unsafe_allow_html=True)
+with st.expander(f"About {APP_NAME}: the data, the models and what this app does"):
+    st.markdown(
+        f"**What it does.** {APP_NAME} tests five machine-learning spam filters on emails they never saw while "
+        f"learning. Each model was trained in the project notebook on 80% of the "
+        f"[UCI Spambase](https://archive.ics.uci.edu/dataset/94/spambase) dataset. The other 20% were held back "
+        f"as test emails, and that is what you see here.\n\n"
+        f"**The data.** Each email is described by 57 numbers: how often 48 words (such as *free*, *money* or "
+        f"*meeting*) and 6 characters (such as *!* and *$*) appear, and how much of it is written in capital letters.\n\n"
+        f"**The models.** Logistic Regression, Decision Tree, K-Nearest Neighbours, Naive Bayes and a Support "
+        f"Vector Machine. Each was tuned with 5-fold cross-validation on the training emails only.\n\n"
+        f"**No retraining.** The app only loads the five saved models from the `model/` folder and scores the emails.\n\n"
+        f"**Colours.** Teal means correct (or the final model), coral means a mistake, and navy marks the model "
+        f"you chose in the sidebar.")
 
 # ---------------------------------------------------------------- selected model: matrix + metrics
 run = runs[model_name]
 pred, proba, met = run["pred"], run["proba"], run["metrics"]
 tn, fp, fn, tp = confusion_matrix(y, pred, labels=[0, 1]).ravel()
 
+st.markdown(f"""
+<div class="res-head">
+  <div><h2>Results for {model_name}{' (final model)' if model_name == FINAL else ''}</h2>
+  <p>Scoring {source}: {len(y):,} emails, {n_legit:,} legitimate and {n_spam:,} spam.
+  Choose another model in the sidebar to compare.</p></div>
+  <div class="hanko" aria-label="F1 score {met['F1']:.3f}"><b>{SHORT.get(model_name, model_name)}</b>
+  <span>F1 {met['F1']:.3f}</span></div>
+</div>""", unsafe_allow_html=True)
+
 left, right = st.columns([1.05, 1], gap="large")
 with left:
-    st.markdown(f"<p class='section-title'>Confusion matrix: where {model_name} put each email</p>"
-                f"<p class='section-note'>Green trays are correct. Red trays are mistakes: "
-                f"{fp + fn} of {len(y):,} emails. Change the filter in the sidebar to compare.</p>",
-                unsafe_allow_html=True)
+    st.markdown(f"<p class='section-title'>Confusion matrix</p>"
+                f"<p class='section-note'>Where {model_name} put each email. Teal trays are correct, coral "
+                f"trays are mistakes: {fp + fn} of {len(y):,}.</p>", unsafe_allow_html=True)
     st.markdown(f"""
 <div class="trays">
   <div></div><div class="head">Model said legitimate</div><div class="head">Model said spam</div>
@@ -671,8 +791,8 @@ with left:
 </div>""", unsafe_allow_html=True)
 
 with right:
-    st.markdown(f"<p class='section-title'>Evaluation metrics for {model_name}</p>"
-                "<p class='section-note'>Spam is the positive class. Rank compares this filter "
+    st.markdown("<p class='section-title'>Evaluation metrics</p>"
+                "<p class='section-note'>Spam is the positive class. Rank compares this model "
                 "with the other four on the same emails.</p>", unsafe_allow_html=True)
     rows = []
     for m, v in met.items():
@@ -696,10 +816,10 @@ tab_why, tab_all, tab_report, tab_err, tab_one = st.tabs([
 
 # ---- Why the final model
 with tab_why:
-    st.markdown(f"**How the final model was chosen.** All five filters were tuned with cross-validation on "
+    st.markdown(f"**How the final model was chosen.** All five models were tuned with cross-validation on "
                 f"the training emails only. The one with the best average F1 was chosen, and the choice was "
-                f"then checked on the test emails, which no filter saw during training. The five steps below "
-                f"are the evidence; the PDF report under the green banner contains the same charts.")
+                f"then checked on the test emails, which no model saw during training. The five steps below "
+                f"are the evidence; the evidence pack PDF at the top of the page contains the same charts.")
 
     if summary and summary.get("cv"):
         fig, ax = new_fig(10, 3.4); draw_cv(ax, summary, FINAL)
@@ -725,7 +845,7 @@ with tab_why:
         fig, ax = new_fig(6, 3.3); draw_mistakes(ax, errors, FINAL)
         plt.tight_layout(); st.pyplot(fig); plt.close(fig)
 
-    st.markdown(f"**Step 3. Is the lead real, or luck?** We compare {FINAL} with each other filter only on the "
+    st.markdown(f"**Step 3. Is the lead real, or luck?** We compare {FINAL} with each other model only on the "
                 f"emails where they disagree. If one wins those far more often than chance would allow "
                 f"(p below 0.05), the difference is real.")
     fig, ax = new_fig(10, 0.75 * (len(names) - 1) + 1.3); draw_head_to_head(ax, correct, FINAL, names)
@@ -743,14 +863,14 @@ with tab_why:
         plt.tight_layout(); st.pyplot(fig); plt.close(fig)
 
     st.markdown(f"**The verdict.** {FINAL} wins on accuracy and on the mistake that matters most for email, "
-                f"losing genuine messages to the spam folder. It is larger and slower than the simplest filters; "
+                f"losing genuine messages to the spam folder. It is larger and slower than the simplest models; "
                 f"if speed or explainability mattered more than accuracy, {runner} would be the sensible alternative.")
 
 # ---- Compare all five
 with tab_all:
     st.markdown("Every saved model scored on the same emails. Choose a metric to rank them by; "
-                "the final model is green and the filter selected in the sidebar is blue.")
-    metric = st.radio("Rank the filters by", list(METRIC_MEANING), index=4, horizontal=True)
+                "the final model is teal and the model chosen in the sidebar is navy.")
+    metric = st.radio("Rank the models by", list(METRIC_MEANING), index=4, horizontal=True)
     order = all_metrics[metric].sort_values()
     fig, ax = new_fig(8.5, 3.3)
     colors = [SORTED_GREEN if n == FINAL else POSTAL_BLUE if n == model_name else GREY_BAR for n in order.index]
@@ -796,7 +916,7 @@ with tab_report:
 # ---- Where it went wrong
 with tab_err:
     wrong = np.flatnonzero(pred != y)
-    st.markdown(f"A filter can go wrong in two ways. Here are **{model_name}**'s {len(wrong)} mistakes "
+    st.markdown(f"A model can go wrong in two ways. Here are **{model_name}**'s {len(wrong)} mistakes "
                 f"on these {len(y):,} emails.")
     st.markdown(f"""
 <div class="cards2">
@@ -857,14 +977,14 @@ with tab_err:
 
 # ---- Inspect one email
 with tab_one:
-    st.markdown("Pick any email by its row number and see how each of the five filters judged it, "
+    st.markdown("Pick any email by its row number and see how each of the five models judged it, "
                 "and what the email contained.")
     first_wrong = int(np.flatnonzero(pred != y)[0]) if (pred != y).any() else 0
     idx = int(st.number_input(f"Email row (0 to {len(y) - 1})", min_value=0, max_value=len(y) - 1,
                               value=first_wrong, step=1))
     truth = "spam" if y[idx] == 1 else "legitimate"
     n_right = sum(int(runs[n]["pred"][idx] == y[idx]) for n in names)
-    st.markdown(f"Row **{idx}** is actually **{truth}**. **{n_right} of {len(names)}** filters got it right.")
+    st.markdown(f"Row **{idx}** is actually **{truth}**. **{n_right} of {len(names)}** models got it right.")
 
     scores = [runs[n]["proba"][idx] for n in names]
     verdicts = [runs[n]["pred"][idx] for n in names]
@@ -876,7 +996,7 @@ with tab_one:
         ax.text(min(s_ + 0.02, 0.8), i, f"{s_:.2f}  says {'spam' if v == 1 else 'legitimate'}",
                 va="center", fontsize=10, color=INK)
     ax.set_xlim(0, 1)
-    ax.set_xlabel("spam score from each filter (dashed line = 0.5). Green = correct, red = wrong", color=MUTED)
+    ax.set_xlabel("spam score from each model (dashed line = 0.5). Teal = correct, coral = wrong", color=MUTED)
     ax.invert_yaxis()
     style_axes(ax)
     plt.tight_layout(); st.pyplot(fig); plt.close(fig)
