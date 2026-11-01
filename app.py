@@ -72,21 +72,21 @@ st.markdown(f"""
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap');
 
 .block-container {{ padding-top: 3.6rem; max-width: 1250px; }}
-[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li {{
+:where([data-testid="stMarkdownContainer"]) p, :where([data-testid="stMarkdownContainer"]) li {{
     font-family: 'Source Sans 3', sans-serif; font-size: 1.02rem; line-height: 1.5; }}
 h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; letter-spacing: -0.01em; }}
 
 /* ---- header: logo text + mascot */
 .hero-head {{ display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; }}
 .logo {{ font-family: Verdana, 'DejaVu Sans', 'Segoe UI', sans-serif; font-weight: 700;
-    font-size: 4.4rem; line-height: 1.05; margin: 0; letter-spacing: -0.01em; }}
+    font-size: 4.4rem; line-height: 1.1; margin: 0; padding-bottom: .22em; letter-spacing: -0.01em; }}
 .logo .spam {{ color: {CORAL}; position: relative; display: inline-block; }}
 .logo .spam::after {{ content: ""; position: absolute; left: -.04em; right: .02em; bottom: -.1em;
     height: .1em; border-radius: 99px; background: {TEAL}; }}
 .logo .urai {{ color: {INK}; }}
 .tagline {{ font-family: 'Archivo', sans-serif; font-weight: 700; color: {INK}; font-size: 1.35rem;
-    line-height: 1.3; margin: 1.1rem 0 .3rem 0; max-width: 34ch; }}
-.subline {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; font-size: 1.05rem; margin: 0 0 .9rem 0; }}
+    line-height: 1.3; margin: .9rem 0 .35rem 0 !important; max-width: 48ch; }}
+.subline {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; font-size: 1.05rem; margin: 0 0 1rem 0 !important; }}
 .jump {{ display: inline-block; font-family: 'Source Sans 3', sans-serif; font-weight: 700; font-size: .98rem;
     color: {INK} !important; text-decoration: none !important; border: 2px solid {INK}; border-radius: 99px;
     padding: .35rem 1rem; }}
@@ -155,8 +155,8 @@ h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; lette
 @media (prefers-reduced-motion: reduce) {{ .hanko {{ animation: none; }} }}
 
 .section-title {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.3rem;
-    color: {INK}; margin: 1.2rem 0 .2rem 0; }}
-.section-note {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; margin: 0 0 .8rem 0; }}
+    color: {INK}; margin: 1.2rem 0 .2rem 0 !important; }}
+.section-note {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; margin: 0 0 .8rem 0 !important; }}
 
 /* ---- confusion matrix drawn as four trays */
 .trays {{ display: grid; grid-template-columns: 8.5rem 1fr 1fr; gap: 6px; font-family: 'Source Sans 3', sans-serif; }}
@@ -179,8 +179,8 @@ h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; lette
 .score .d {{ grid-column: 1 / -1; color: {MUTED}; font-size: .88rem; margin: -.2rem 0 .45rem 0; }}
 
 /* ---- tabs styled as folder tabs so they read as clickable */
-.explore {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.7rem; color: {INK}; margin: 2.2rem 0 .1rem 0; }}
-.explore-note {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; margin: 0 0 .6rem 0; }}
+.explore {{ font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 1.7rem; color: {INK}; margin: 2.2rem 0 .1rem 0 !important; }}
+.explore-note {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; margin: 0 0 .6rem 0 !important; }}
 .stTabs [data-baseweb="tab-list"] {{ gap: 6px; flex-wrap: wrap; border-bottom: 2px solid {INK}; }}
 .stTabs [data-baseweb="tab"] {{ height: auto; background: #E9ECF1; border: 1.5px solid {RULE};
     border-bottom: none; border-radius: 9px 9px 0 0; padding: .65rem 1.15rem; margin-bottom: 0; }}
@@ -194,7 +194,7 @@ h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; lette
     border-radius: 0 0 10px 10px; padding: 1.2rem 1.4rem 1.4rem; }}
 
 /* ---- data-scope labels in the Why tab */
-.phase {{ font-family: 'Source Sans 3', sans-serif; color: {INK}; margin: 1.3rem 0 .5rem 0;
+.phase {{ font-family: 'Source Sans 3', sans-serif; color: {INK}; margin: 1.3rem 0 .5rem 0 !important;
     padding-top: .9rem; border-top: 1px solid {RULE}; }}
 .scope {{ display: inline-block; font-weight: 700; font-size: .85rem; border-radius: 6px;
     padding: .12rem .55rem; margin-right: .55rem; }}
@@ -720,7 +720,7 @@ gif = mascot_b64()
 st.markdown(
     "<div class='hero-head'><div>"
     "<div class='logo' role='heading' aria-level='1'><span class='spam'>Spam</span><span class='urai'>urai</span></div>"
-    f"<p class='tagline'>{APP_TAGLINE}</p><p class='subline'>{APP_SUBLINE}</p>"
+    f"<div class='tagline'>{APP_TAGLINE}</div><div class='subline'>{APP_SUBLINE}</div>"
     "<a class='jump' href='#compare' target='_self'>Jump to the model comparison ↓</a></div>"
     + (f"<img class='mascot' src='data:image/gif;base64,{gif}' "
        "alt='A cartoon samurai slices a spam email in half and files the real email in the inbox tray'>"
