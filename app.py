@@ -183,15 +183,16 @@ h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; lette
 .explore-note {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; margin: 0 0 .6rem 0 !important; }}
 /* ARIA roles are used instead of internal class names, so this works across Streamlit versions */
 div[role="tablist"] {{ gap: 6px !important; flex-wrap: wrap; border-bottom: 2px solid {INK} !important; }}
-button[role="tab"] {{ height: auto !important; background: #E9ECF1 !important; border: 1.5px solid {RULE} !important;
+[role="tab"] {{ height: auto !important; background: #E9ECF1 !important; border: 1.5px solid {RULE} !important;
     border-bottom: none !important; border-radius: 9px 9px 0 0 !important; padding: .65rem 1.15rem !important;
     margin: 0 !important; box-shadow: none !important; }}
-button[role="tab"] p {{ font-family: 'Archivo', sans-serif !important; font-weight: 700 !important;
+[role="tab"] p, [role="tab"] div, [role="tab"] span {{ font-family: 'Archivo', sans-serif !important; font-weight: 700 !important;
     font-size: 1.02rem !important; color: {INK} !important; }}
-button[role="tab"]:hover {{ background: #FFFFFF !important; border-color: {INK} !important; }}
-button[role="tab"][aria-selected="true"] {{ background: {INK} !important; border-color: {INK} !important; }}
-button[role="tab"][aria-selected="true"] p {{ color: #FFFFFF !important; }}
-button[role="tab"]:focus-visible {{ outline: 3px solid {CORAL} !important; outline-offset: 2px; }}
+[role="tab"]:hover {{ background: #FFFFFF !important; border-color: {INK} !important; }}
+[role="tab"][aria-selected="true"] {{ background: {INK} !important; border-color: {INK} !important; }}
+[role="tab"][aria-selected="true"] p, [role="tab"][aria-selected="true"] div,
+[role="tab"][aria-selected="true"] span {{ color: #FFFFFF !important; }}
+[role="tab"]:focus-visible {{ outline: 3px solid {CORAL} !important; outline-offset: 2px; }}
 [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] {{ display: none !important; }}
 div[role="tabpanel"] {{ background: #FFFFFF; border: 1px solid {RULE}; border-top: none;
     border-radius: 0 0 10px 10px; padding: 1.2rem 1.4rem 1.4rem !important; }}
