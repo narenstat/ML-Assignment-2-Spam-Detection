@@ -29,7 +29,8 @@ from sklearn.metrics import (
 )
 
 APP_NAME = "Spamurai"
-APP_TAGLINE = "Five machine-learning models sort emails they have never seen. The sharpest blade wins."
+APP_TAGLINE = "Spam gets the sword. Real mail gets the inbox."
+APP_SUBLINE = "Spam detection, tested on emails the models never saw during training."
 AUTHOR = "Naren (2026AJ05871)"
 
 HERE = Path(__file__).parent
@@ -70,7 +71,7 @@ st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap');
 
-.block-container {{ padding-top: 1.4rem; max-width: 1250px; }}
+.block-container {{ padding-top: 3.6rem; max-width: 1250px; }}
 [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li {{
     font-family: 'Source Sans 3', sans-serif; font-size: 1.02rem; line-height: 1.5; }}
 h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; letter-spacing: -0.01em; }}
@@ -83,9 +84,15 @@ h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; lette
 .logo .spam::after {{ content: ""; position: absolute; left: -.04em; right: .02em; bottom: -.1em;
     height: .1em; border-radius: 99px; background: {TEAL}; }}
 .logo .urai {{ color: {INK}; }}
-.tagline {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; font-size: 1.18rem;
-    margin: 1.1rem 0 0 0; max-width: 44ch; }}
-.mascot {{ width: 340px; max-width: 100%; height: auto; }}
+.tagline {{ font-family: 'Archivo', sans-serif; font-weight: 700; color: {INK}; font-size: 1.35rem;
+    line-height: 1.3; margin: 1.1rem 0 .3rem 0; max-width: 34ch; }}
+.subline {{ font-family: 'Source Sans 3', sans-serif; color: {MUTED}; font-size: 1.05rem; margin: 0 0 .9rem 0; }}
+.jump {{ display: inline-block; font-family: 'Source Sans 3', sans-serif; font-weight: 700; font-size: .98rem;
+    color: {INK} !important; text-decoration: none !important; border: 2px solid {INK}; border-radius: 99px;
+    padding: .35rem 1rem; }}
+.jump:hover {{ background: {INK}; color: #FFFFFF !important; }}
+.mascot {{ width: 340px; max-width: 100%; height: auto; padding-top: 12px; }}
+#compare {{ scroll-margin-top: 4.5rem; }}
 
 /* ---- verdict hero */
 .verdict {{ background: #FFFFFF; border: 1px solid {RULE}; border-radius: 12px; padding: 1.2rem 1.4rem;
@@ -185,6 +192,14 @@ h1, h2, h3 {{ font-family: 'Archivo', sans-serif !important; color: {INK}; lette
 .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {{ display: none; }}
 .stTabs [data-baseweb="tab-panel"] {{ background: #FFFFFF; border: 1px solid {RULE}; border-top: none;
     border-radius: 0 0 10px 10px; padding: 1.2rem 1.4rem 1.4rem; }}
+
+/* ---- data-scope labels in the Why tab */
+.phase {{ font-family: 'Source Sans 3', sans-serif; color: {INK}; margin: 1.3rem 0 .5rem 0;
+    padding-top: .9rem; border-top: 1px solid {RULE}; }}
+.scope {{ display: inline-block; font-weight: 700; font-size: .85rem; border-radius: 6px;
+    padding: .12rem .55rem; margin-right: .55rem; }}
+.scope.train {{ background: {GOLD}; color: {INK}; }}
+.scope.test {{ background: {TEAL_DARK}; color: #FFFFFF; }}
 
 /* ---- mistake cards */
 .cards2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: .4rem 0 1rem 0; }}
@@ -299,31 +314,53 @@ def new_fig(w, h):
     return fig, ax
 
 
-def chart_title(ax, text):
-    ax.set_title(text, loc="left", fontsize=12, fontweight="bold", color=INK, pad=10)
+def fmt_p(p):
+    """A p-value is never exactly zero, so very small values are shown as p < 0.001."""
+    return "p < 0.001" if p < 0.001 else f"p = {p:.3f}"
 
 
-def draw_mistakes(ax, errors, final):
+SCOPE_STYLE = {
+    "train": (GOLD, INK),        # model selection
+    "test": (TEAL_DARK, "#FFFFFF"),  # final evaluation
+    "both": (INK, "#FFFFFF"),
+}
+
+
+def chart_title(ax, text, scope=None, n_test=None):
+    """Title plus a coloured badge saying which data the chart is based on."""
+    ax.set_title(text, loc="left", fontsize=12, fontweight="bold", color=INK, pad=8)
+    if scope:
+        n_txt = f"{n_test:,}" if n_test else "the"
+        badge = {"train": "Model selection: cross-validation on training data",
+                 "test": f"Final evaluation: results on {n_txt} held-out test emails",
+                 "both": f"Training data vs {n_txt} held-out test emails"}[scope]
+        bg, fg = SCOPE_STYLE[scope]
+        ax.annotate(badge, xy=(0, 1), xycoords="axes fraction", xytext=(0, 27), textcoords="offset points",
+                    ha="left", va="bottom", fontsize=9, fontweight="bold", color=fg,
+                    bbox=dict(boxstyle="round,pad=0.35", fc=bg, ec="none"))
+
+
+def draw_mistakes(ax, errors, final, n_test):
     order = pd.Series(errors).sort_values(ascending=False)
     ax.barh(order.index, order.values,
             color=[SORTED_GREEN if n == final else GREY_BAR for n in order.index], height=0.6)
     for i, v in enumerate(order.values):
         ax.text(v, i, f"  {v}", va="center", fontsize=10, color=INK)
     ax.set_xlim(0, order.max() * 1.15)
-    ax.set_xlabel("mistakes on the test emails (lower is better)", color=MUTED)
-    chart_title(ax, "Total mistakes")
+    ax.set_xlabel("mistakes (lower is better)", color=MUTED)
+    chart_title(ax, "Total mistakes", "test", n_test)
     style_axes(ax)
 
 
-def draw_metric(ax, all_metrics, metric, final, title):
+def draw_metric(ax, all_metrics, metric, final, title, n_test):
     order = all_metrics[metric].sort_values()
     ax.barh(order.index, order.values,
             color=[SORTED_GREEN if n == final else GREY_BAR for n in order.index], height=0.6)
     for i, v in enumerate(order.values):
         ax.text(v, i, f" {v:.3f}", va="center", fontsize=10, color=INK)
     ax.set_xlim(max(0, order.min() - 0.1), 1.02)
-    ax.set_xlabel(f"{metric} on the test emails (higher is better)", color=MUTED)
-    chart_title(ax, title)
+    ax.set_xlabel(f"{metric} (higher is better)", color=MUTED)
+    chart_title(ax, title, "test", n_test)
     style_axes(ax)
 
 
@@ -338,12 +375,13 @@ def draw_cv(ax, summary, final):
     for i, (m, s) in enumerate(zip(means, stds)):
         ax.text(m + s + 0.004, i, f"{m:.3f}", va="center", fontsize=10, color=INK)
     ax.set_xlim(max(0, min(means) - 0.08), 1.0)
-    ax.set_xlabel(f"mean F1 over {summary.get('cv_folds', 5)} folds (bar) and spread (whisker)", color=MUTED)
-    chart_title(ax, "Step 1: cross-validation on the training emails")
+    ax.set_xlabel(f"mean F1 over {summary.get('cv_folds', 5)} folds of {summary.get('n_train', 0):,} "
+                  f"training emails (bar) and spread between folds (whisker)", color=MUTED)
+    chart_title(ax, "Step 1: which model scored best while training?", "train")
     style_axes(ax)
 
 
-def draw_head_to_head(ax, correct, final, names_):
+def draw_head_to_head(ax, correct, final, names_, n_test):
     others = [n for n in names_ if n != final]
     lim = 1
     for i, n in enumerate(others):
@@ -353,7 +391,7 @@ def draw_head_to_head(ax, correct, final, names_):
         ax.barh(i, -b, color=GREY_BAR, height=0.5)
         ax.text(a, i, f"  {a}", va="center", fontweight="bold", color=INK)
         ax.text(-b, i, f"{b}  ", va="center", ha="right", fontweight="bold", color=INK)
-        ax.text(0, i - 0.38, f"p = {p:.3f}: {'real difference' if p < 0.05 else 'could be chance'}",
+        ax.text(0, i - 0.38, f"{fmt_p(p)}: {'real difference' if p < 0.05 else 'could be chance'}",
                 ha="center", va="bottom", fontsize=9.5, color=TEAL_DARK if p < 0.05 else CORAL_DARK)
     ax.axvline(0, color=INK, lw=1)
     ax.set_yticks(range(len(others)))
@@ -362,11 +400,11 @@ def draw_head_to_head(ax, correct, final, names_):
     ax.set_ylim(len(others) - 0.5, -0.9)
     ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{abs(v):.0f}"))
     ax.set_xlabel(f"emails only the other model got right   |   emails only {final} got right", color=MUTED)
-    chart_title(ax, "Step 3: head to head on the emails where two models disagree")
+    chart_title(ax, "Step 3: is the lead real? Head to head where two models disagree", "test", n_test)
     style_axes(ax)
 
 
-def draw_gap(ax, summary, all_metrics, final):
+def draw_gap(ax, summary, all_metrics, final, n_test):
     rows = [(n, summary["train_accuracy"][n], all_metrics.loc[n, "Accuracy"])
             for n in all_metrics.index if n in summary.get("train_accuracy", {})]
     rows.sort(key=lambda r: r[1] - r[2])
@@ -381,20 +419,36 @@ def draw_gap(ax, summary, all_metrics, final):
     lo = min(min(r[1], r[2]) for r in rows) - 0.02
     ax.set_xlim(lo, 1.05)
     ax.set_xticks([t for t in np.arange(np.floor(lo * 50) / 50, 1.0001, 0.02)])
-    ax.set_xlabel("accuracy (filled = training emails, hollow = test emails)", color=MUTED)
-    chart_title(ax, "Step 4: does it generalise? (shorter line = less overfitting)")
+    ax.set_xlabel("accuracy: filled dot = training, hollow dot = test\n(a shorter line means less overfitting)", color=MUTED)
+    chart_title(ax, "Step 4: does it generalise?", "both", n_test)
     style_axes(ax)
 
 
-def draw_cost(ax, runs, final):
+def draw_cost(ax, runs, final, n_test):
     ms = pd.Series({n: r["ms_per_1000"] for n, r in runs.items()}).sort_values()
-    ax.barh(ms.index, ms.values, color=[SORTED_GREEN if n == final else GREY_BAR for n in ms.index], height=0.6)
+    fmt = lambda v: f"{v:,.1f} ms" if v < 10 else f"{v:,.0f} ms"
+    cols = [SORTED_GREEN if n == final else GREY_BAR for n in ms.index]
+    ax.barh(ms.index, ms.values, color=cols, height=0.6)
     for i, v in enumerate(ms.values):
-        ax.text(v, i, f"  {v:,.1f} ms", va="center", fontsize=10, color=INK)
-    ax.set_xlim(0, ms.max() * 1.3)
+        ax.text(v, i, f"  {fmt(v)}", va="center", fontsize=10, color=INK)
+    ax.set_xlim(0, ms.max() * 1.25)
     ax.set_xlabel("time to score 1,000 emails on this server (lower is faster)", color=MUTED)
-    chart_title(ax, "Step 5: the cost - scoring speed")
+    chart_title(ax, "Step 5: the cost - scoring speed", "test", n_test)
     style_axes(ax)
+    # The slowest model squashes the others, so zoom in on the fast ones in an inset
+    fast = ms[ms < ms.max() * 0.35]
+    if len(fast) >= 2:
+        ins = ax.inset_axes([0.47, 0.06, 0.5, 0.5])
+        ins.barh(fast.index, fast.values, height=0.6,
+                 color=[SORTED_GREEN if n == final else GREY_BAR for n in fast.index])
+        for i, v in enumerate(fast.values):
+            ins.text(v, i, f" {fmt(v)}", va="center", fontsize=8.5, color=INK)
+        ins.set_xlim(0, fast.max() * 1.45)
+        ins.set_title("zoom: the faster models", fontsize=8.5, color=MUTED, loc="left")
+        ins.tick_params(labelsize=8, colors=INK)
+        ins.set_facecolor("#FAFBFC")
+        for s in ins.spines.values():
+            s.set_color(RULE)
 
 
 def draw_cm(ax, y, pred, name, final):
@@ -431,7 +485,7 @@ def build_reasons(all_metrics, errors, correct, summary, final, n_emails):
     reasons.append(f"Fewest mistakes: {errors[final]}, which is {fewer:.0%} fewer than the runner-up, "
                    f"{runner} ({errors[runner]}).")
     reasons.append(f"Not luck: on the emails where {final} and {runner} disagree, {final} is right {w} times "
-                   f"and {runner} {l} times (McNemar p = {p_run:.3f}"
+                   f"and {runner} {l} times (McNemar {fmt_p(p_run)}"
                    + (", a statistically real difference)." if p_run < 0.05 else ", which could still be chance)."))
     if summary and final in summary.get("train_accuracy", {}):
         gap = (summary["train_accuracy"][final] - all_metrics.loc[final, "Accuracy"]) * 100
@@ -513,8 +567,8 @@ def build_report_pdf(csv_bytes, final):
         else:
             ax = fig.add_subplot(gs[0, :]); ax.axis("off")
             ax.text(0, .5, "Cross-validation results are in Section 7 of the training notebook.", fontsize=12)
-        draw_metric(fig.add_subplot(gs[1, 0]), all_m, "F1", final, "Step 2: F1 on the test emails")
-        draw_metric(fig.add_subplot(gs[1, 1]), all_m, "MCC", final, "Step 2: MCC on the test emails")
+        draw_metric(fig.add_subplot(gs[1, 0]), all_m, "F1", final, "Step 2: F1", len(y))
+        draw_metric(fig.add_subplot(gs[1, 1]), all_m, "MCC", final, "Step 2: MCC", len(y))
         footer(fig, 2)
         pdf.savefig(fig); plt.close(fig)
 
@@ -526,18 +580,18 @@ def build_report_pdf(csv_bytes, final):
         for k, n in enumerate(names_):
             ax = fig.add_subplot(gs[0, k] if k < 5 else gs[1, 0])
             draw_cm(ax, y, runs[n]["pred"], n, final)
-        draw_mistakes(fig.add_subplot(gs[1, 1:4]), errs, final)
+        draw_mistakes(fig.add_subplot(gs[1, 1:4]), errs, final, len(y))
         footer(fig, 3)
         pdf.savefig(fig); plt.close(fig)
 
         # page 4: significance + generalisation
         fig = plt.figure(figsize=A4); fig.patch.set_facecolor("white")
         gs = fig.add_gridspec(2, 1, left=0.22, right=0.95, top=0.9, bottom=0.12, hspace=0.55)
-        draw_head_to_head(fig.add_subplot(gs[0]), corr, final, names_)
+        draw_head_to_head(fig.add_subplot(gs[0]), corr, final, names_, len(y))
         if summary and summary.get("train_accuracy"):
-            draw_gap(fig.add_subplot(gs[1]), summary, all_m, final)
+            draw_gap(fig.add_subplot(gs[1]), summary, all_m, final, len(y))
         else:
-            draw_cost(fig.add_subplot(gs[1]), runs, final)
+            draw_cost(fig.add_subplot(gs[1]), runs, final, len(y))
         footer(fig, 4)
         pdf.savefig(fig); plt.close(fig)
 
@@ -665,8 +719,9 @@ result = sort_mail(csv_bytes) if csv_bytes is not None else None
 gif = mascot_b64()
 st.markdown(
     "<div class='hero-head'><div>"
-    "<h1 class='logo'><span class='spam'>Spam</span><span class='urai'>urai</span></h1>"
-    f"<p class='tagline'>{APP_TAGLINE}</p></div>"
+    "<div class='logo' role='heading' aria-level='1'><span class='spam'>Spam</span><span class='urai'>urai</span></div>"
+    f"<p class='tagline'>{APP_TAGLINE}</p><p class='subline'>{APP_SUBLINE}</p>"
+    "<a class='jump' href='#compare' target='_self'>Jump to the model comparison ↓</a></div>"
     + (f"<img class='mascot' src='data:image/gif;base64,{gif}' "
        "alt='A cartoon samurai slices a spam email in half and files the real email in the inbox tray'>"
        if gif else "")
@@ -701,7 +756,7 @@ if summary and FINAL in summary.get("cv", {}):
     short_reasons.append(f"Picked during training: best average F1 in cross-validation "
                          f"({summary['cv'][FINAL]['F1'][0]:.3f}).")
 short_reasons.append(f"Head to head with {runner}, it wins the disagreements {w_} to {l_} "
-                     + ("(a statistically real lead)." if p_run < 0.05 else "(p = {:.2f}).".format(p_run)))
+                     + (f"({fmt_p(p_run)}, a statistically real lead)." if p_run < 0.05 else f"({fmt_p(p_run)})."))
 
 hero_l, hero_r = st.columns([2.15, 1], gap="medium")
 with hero_l:
@@ -808,7 +863,7 @@ with right:
     st.markdown("<div class='score'>" + "".join(rows) + "</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------- tabs
-st.markdown("<p class='explore'>Explore the results</p>"
+st.markdown("<div id='compare'></div><p class='explore'>Explore the results</p>"
             "<p class='explore-note'>Click a folder tab to open it.</p>", unsafe_allow_html=True)
 tab_why, tab_all, tab_report, tab_err, tab_one = st.tabs([
     f"🏆 Why {FINAL}?", "📊 Compare all five", "📋 Classification report",
@@ -821,8 +876,11 @@ with tab_why:
                 f"then checked on the test emails, which no model saw during training. The five steps below "
                 f"are the evidence; the evidence pack PDF at the top of the page contains the same charts.")
 
+    st.markdown("<p class='phase'><span class='scope train'>Model selection</span>"
+                "Step 1 uses only the training emails. This is where the final model was picked.</p>",
+                unsafe_allow_html=True)
     if summary and summary.get("cv"):
-        fig, ax = new_fig(10, 3.4); draw_cv(ax, summary, FINAL)
+        fig, ax = new_fig(10, 3.8); draw_cv(ax, summary, FINAL)
         plt.tight_layout(); st.pyplot(fig); plt.close(fig)
         cv_rows = {n: {k: f"{v[0]:.4f} ± {v[1]:.4f}" for k, v in summary["cv"][n].items()} for n in summary["cv"]}
         cv_df = pd.DataFrame(cv_rows).T.loc[:, ["Accuracy", "AUC", "F1", "MCC"]]
@@ -837,29 +895,32 @@ with tab_why:
     else:
         st.caption("Step 1 (cross-validation) results are in Section 7 of the training notebook.")
 
+    st.markdown(f"<p class='phase'><span class='scope test'>Final evaluation</span>"
+                f"Steps 2 to 5 use the {len(y):,} held-out test emails, which no model saw while learning. "
+                f"They check that the choice holds up.</p>", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        fig, ax = new_fig(6, 3.3); draw_metric(ax, all_metrics, "MCC", FINAL, "Step 2: overall quality (MCC)")
+        fig, ax = new_fig(6, 3.7); draw_metric(ax, all_metrics, "MCC", FINAL, "Step 2: overall quality (MCC)", len(y))
         plt.tight_layout(); st.pyplot(fig); plt.close(fig)
     with c2:
-        fig, ax = new_fig(6, 3.3); draw_mistakes(ax, errors, FINAL)
+        fig, ax = new_fig(6, 3.7); draw_mistakes(ax, errors, FINAL, len(y))
         plt.tight_layout(); st.pyplot(fig); plt.close(fig)
 
     st.markdown(f"**Step 3. Is the lead real, or luck?** We compare {FINAL} with each other model only on the "
                 f"emails where they disagree. If one wins those far more often than chance would allow "
                 f"(p below 0.05), the difference is real.")
-    fig, ax = new_fig(10, 0.75 * (len(names) - 1) + 1.3); draw_head_to_head(ax, correct, FINAL, names)
+    fig, ax = new_fig(10, 0.75 * (len(names) - 1) + 1.7); draw_head_to_head(ax, correct, FINAL, names, len(y))
     plt.tight_layout(); st.pyplot(fig); plt.close(fig)
 
     c3, c4 = st.columns(2)
     with c3:
         if summary and summary.get("train_accuracy"):
-            fig, ax = new_fig(6, 3.4); draw_gap(ax, summary, all_metrics, FINAL)
+            fig, ax = new_fig(6, 3.8); draw_gap(ax, summary, all_metrics, FINAL, len(y))
             plt.tight_layout(); st.pyplot(fig); plt.close(fig)
         else:
             st.caption("Step 4 (training vs test accuracy) is in Section 9 of the training notebook.")
     with c4:
-        fig, ax = new_fig(6, 3.4); draw_cost(ax, runs, FINAL)
+        fig, ax = new_fig(6, 3.8); draw_cost(ax, runs, FINAL, len(y))
         plt.tight_layout(); st.pyplot(fig); plt.close(fig)
 
     st.markdown(f"**The verdict.** {FINAL} wins on accuracy and on the mistake that matters most for email, "
@@ -872,13 +933,14 @@ with tab_all:
                 "the final model is teal and the model chosen in the sidebar is navy.")
     metric = st.radio("Rank the models by", list(METRIC_MEANING), index=4, horizontal=True)
     order = all_metrics[metric].sort_values()
-    fig, ax = new_fig(8.5, 3.3)
+    fig, ax = new_fig(8.5, 3.7)
     colors = [SORTED_GREEN if n == FINAL else POSTAL_BLUE if n == model_name else GREY_BAR for n in order.index]
     ax.barh([label_of(n) for n in order.index], order.values, color=colors, height=0.6)
     for i, v in enumerate(order.values):
         ax.text(v + 0.003, i, f"{v:.4f}", va="center", fontsize=10, color=INK)
     ax.set_xlim(max(0.0, np.nanmin(order.values) - 0.08), 1.0)
     ax.set_xlabel(f"{metric}: {METRIC_MEANING[metric].lower()}", color=MUTED)
+    chart_title(ax, f"All five models ranked by {metric}", "test", len(y))
     style_axes(ax)
     plt.tight_layout(); st.pyplot(fig); plt.close(fig)
 
