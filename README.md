@@ -19,7 +19,7 @@ Machine Learning, Assignment 2 · M.Tech (AIML), BITS Pilani WILP · Naren (2026
 
 Spam wastes people's time, but a filter that is too aggressive is just as harmful, because it hides genuine messages in the spam folder. This project builds a classifier that decides whether an email is **spam (1)** or **legitimate (0)**, using 57 numeric features that describe its words, characters and capital letters.
 
-Five classification models are trained on the same data, tuned, and compared on six evaluation metrics. All five are then served through an interactive Streamlit web app, which scores held-out test emails without retraining anything.
+Five classification models are trained on the same data, tuned, and compared on six evaluation metrics. The best model and the other four are then served through an interactive Streamlit web app, which scores held-out test emails without retraining anything.
 
 > **The goal in one line:** catch as much spam as possible **while keeping real email out of the spam folder**, and show the results in a deployed app.
 
@@ -41,11 +41,15 @@ Five classification models are trained on the same data, tuned, and compared on 
 | Training set (80%, used to learn and tune) | 3,368 | 2,025 (60.1%) | 1,343 (39.9%) |
 | Test set (20%, held back for the final check) | 842 | 506 (60.1%) | 336 (39.9%) |
 
+Both sets keep the original 60 / 40 balance, so the test set is a fair miniature of the real data.
+
 **What the 57 features describe**
 
 - **48 word-frequency features:** the percentage of words that are, for example, `free`, `money`, `remove`, `hp` or `meeting`.
 - **6 character-frequency features:** the percentage of characters that are `;`, `(`, `[`, `!`, `$` or `#`.
 - **3 capital-letter features:** the average, longest and total runs of capital letters.
+
+Every feature is a number. A typical email has values for only a handful of the 57 features; the rest are zero.
 
 ![Class balance and feature groups](figures/fig01_overview.png)
 
@@ -154,67 +158,132 @@ Every model gives each email a spam score. These curves test **every possible cu
 
 ### Model-by-model analysis
 
-**#1 Support Vector Machine (final model): best overall, and the most balanced**
-- ✅ Best accuracy, precision, F1 and MCC; the only MCC above 0.90
-- ✅ Fewest mistakes (40), split evenly: 21 false alarms, 19 missed spam
-- ✅ Best during cross-validation too (F1 0.9300)
-- ⚠️ Larger (about 400 KB) and slower than Logistic Regression
-- **Why:** its RBF kernel draws a curved boundary, combining cues such as `$` together with long runs of capitals.
+Each model's six test metrics and confusion matrix are summarised below, followed by what it does well, where it falls short and why.
 
-**#2 Logistic Regression: a reliable, lightweight runner-up**
-- ✅ Highest AUC (0.9809) and the most stable (gap +0.15 pp); tiny and easy to explain
-- ⚠️ 52 mistakes, mostly missed spam (30); SVM beats it 20 to 8 where they disagree
-- **Why:** a straight-line boundary adds up each clue separately instead of combining them.
+**#1 (final model) Support Vector Machine: Best overall, and the most balanced**
 
-**#3 K-Nearest Neighbours: solid, but heavy to deploy**
-- ✅ F1 0.9127, AUC 0.9782; performed exactly as cross-validation predicted
-- ⚠️ 58 mistakes; stores all 3,368 training emails (about 1.5 MB) and compares each new email with every one
-- **Why:** it judges an email by its 9 most similar neighbours. Its near-100% training accuracy comes from each email counting as its own neighbour, not from real overfitting.
+*What it does well*
+- Best accuracy (0.9525), precision (0.9379), F1 (0.9407) and MCC (0.9011): the only MCC above 0.90
+- Fewest mistakes (40), split evenly: 21 false alarms, 19 missed spam
+- Also the best during cross-validation (F1 0.9300), so the win is not luck
 
-**#4 Decision Tree (pruned): easy to explain, but coarse**
-- ✅ Pruning fixed its overfitting (gap 8.9 → 3.2 pp) and improved F1 (0.8872 → 0.8939) with a tree 76% smaller
-- ⚠️ Most missed spam of all models (41) and 70 mistakes in total
-- **Why:** splitting on one feature at a time is a blunt way to combine 57 weak signals.
+*Where it falls short*
+- Larger (about 400 KB) and slower to score than Logistic Regression
+- AUC is essentially tied with Logistic Regression (0.9807 vs 0.9809)
 
-**#5 Naive Bayes: catches spam, but blocks far too much real mail**
-- ✅ Highest recall (0.9464): only 18 spam emails got through
-- ⚠️ Blocks 115 of 506 real emails (22.7%); lowest accuracy, F1 and MCC
-- **Why:** it treats related words as independent evidence, so its scores become over-confident. Train and test accuracy are both low: it underfits.
+**Why:** Its RBF kernel draws a curved boundary, so it can combine cues such as "$" together with long runs of capitals, which a straight line cannot.
+
+**#2 Logistic Regression: A reliable, lightweight runner-up**
+
+*What it does well*
+- The highest AUC (0.9809): it ranks emails as well as SVM
+- The most stable model: a train–test gap of only +0.15 pp
+- Tiny (about 6 KB) and easy to explain through its weights
+
+*Where it falls short*
+- 52 mistakes, 12 more than SVM, mostly missed spam (30)
+- SVM beats it on the emails where the two disagree: 20 to 8
+
+**Why:** It draws a straight-line boundary, so it adds up each clue separately instead of combining them.
+
+**#3 K-Nearest Neighbours: Solid, but heavy to deploy**
+
+*What it does well*
+- F1 0.9127 and AUC 0.9782, close to Logistic Regression
+- Performed exactly as cross-validation predicted (0.9141 there, 0.9127 on test)
+
+*Where it falls short*
+- 58 mistakes (25 false alarms, 33 missed spam)
+- Stores all 3,368 training emails (about 1.5 MB) and compares every new email with all of them
+
+**Why:** It judges an email by its 9 most similar neighbours. Its near-100% training accuracy is a side effect of letting each email count as its own neighbour, not real overfitting.
+
+**#4 Decision Tree (pruned): Easy to explain, but coarse**
+
+*What it does well*
+- Pruning fixed its overfitting: the gap fell from 8.9 to 3.2 pp
+- Pruning also improved F1 (0.8872 to 0.8939) with a tree 76% smaller
+
+*Where it falls short*
+- The most missed spam of all models (41), and 70 mistakes in total
+- Lowest precision and recall of the four stronger models
+
+**Why:** It splits on one feature at a time, which is a blunt way to combine 57 weak signals.
+
+**#5 Naive Bayes (Gaussian): Catches spam, but blocks far too much real mail**
+
+*What it does well*
+- The highest recall (0.9464): only 18 spam emails got through
+
+*Where it falls short*
+- Blocks 115 of 506 real emails (22.7%), almost one in four
+- Lowest accuracy (0.8420), F1 (0.8270) and MCC (0.7046)
+
+**Why:** It assumes every feature is independent, so related words are counted as separate evidence. Its scores become over-confident, and too many real emails cross the spam line. Train and test accuracy are both low (gap -0.32 pp): it underfits.
 
 ### Why SVM is the winner: the evidence
 
+Five questions an evaluator might ask, each answered with a chart. Charts with a **gold** label use the training data (when the model was chosen); charts with a **teal** label use the 842 test emails (the final check).
+
 **1. Was SVM already the best before it saw the test emails?**
-During training, each model was scored on 5 different slices of the training emails. SVM had the best average F1 (0.9300), and the ranking on the test emails was exactly the same: SVM > Logistic Regression > KNN > Decision Tree > Naive Bayes.
+
+![Cross-validation F1 across the 5 folds](figures/fig08_cv_stability.png)
+
+- During training, each model was scored 5 times on different slices of the training emails. Each dot is one slice; the box shows the middle of the five scores.
+- SVM had the best average F1 (0.9300) and its worst slice (about 0.91) was as good as Logistic Regression's typical one. Naive Bayes sits far below the rest on every slice.
+- The ranking on the test emails is exactly the same: SVM > Logistic Regression > KNN > Decision Tree > Naive Bayes.
+
 > **Takeaway:** SVM was chosen on the training data alone, and the test set confirmed the choice.
 
-![Cross-validation results](figures/fig08_cv_stability.png)
-
 **2. Which model makes the mistakes that matter most?**
-A false alarm (a real email sent to spam) is usually worse than one spam reaching the inbox. SVM makes the fewest mistakes (40) and only 21 false alarms (4.2% of real email); Naive Bayes makes 115, hiding almost one in four genuine emails.
-> **Takeaway:** SVM is best at the mistake users care most about.
+
+![Confusion matrices](figures/fig10_confusion_matrices.png)
+
+- A **false alarm** (a real email sent to spam) is usually worse for a user than one spam reaching the inbox.
+- SVM makes the fewest mistakes (40) and only 21 false alarms (4.2% of real email).
+- Naive Bayes makes 115 false alarms: it would hide almost one in four genuine emails.
+
+> **Takeaway:** SVM is the best at the mistake users care most about, not just on average.
 
 **3. Catching spam or protecting real mail: who balances both?**
-Naive Bayes catches the most spam but has by far the lowest precision. SVM keeps both high, which is why it leads on F1 and MCC.
-> **Takeaway:** recall alone would wrongly favour Naive Bayes; F1 and MCC measure both sides.
+
+- The best place on this chart is the top-right corner: high recall and high precision.
+- Naive Bayes catches the most spam (far right) but has by far the lowest precision (bottom).
+- SVM sits closest to the ideal corner, which is why it has the best F1 and MCC.
+
+> **Takeaway:** Recall alone would wrongly favour Naive Bayes. F1 and MCC measure both sides, and SVM wins on both.
 
 **4. Is SVM's lead real, or could it be luck?**
-McNemar's test looks only at the emails where two models disagree. SVM wins those 20 to 8 against Logistic Regression, 45 to 15 against the Decision Tree, 24 to 6 against KNN and 111 to 18 against Naive Bayes. Every p-value is below 0.05. By contrast, Logistic Regression vs KNN gives p = 0.391: those two are genuinely tied.
-> **Takeaway:** SVM's advantage is statistically real against every other model.
 
 ![Head-to-head with SVM](figures/fig16_mcnemar_vs_svm.png)
 
+- McNemar's test looks only at the emails where two models disagree. If they were equally good, each would win about half.
+- SVM wins those disagreements 20 to 8 against Logistic Regression, 45 to 15 against the Decision Tree, 24 to 6 against KNN and 111 to 18 against Naive Bayes.
+- Every p-value is below 0.05, meaning there is less than a 5% chance these leads are luck. By contrast, Logistic Regression vs KNN gives p = 0.391: those two are genuinely tied.
+
+> **Takeaway:** SVM's advantage is statistically real against every other model.
+
 **5. Did any model just memorise the training data?**
-The unpruned Decision Tree had the biggest train–test gap (8.9 pp); pruning cut it to 3.2 pp. SVM (+2.3 pp) and Logistic Regression (+0.15 pp) generalise well, while Naive Bayes is low on both sides (it underfits).
-> **Takeaway:** SVM's test score is trustworthy, not the result of memorising.
 
 ![Train vs test accuracy](figures/fig12_train_test_gap.png)
 ![Decision Tree pruning](figures/fig07_dt_pruning.png)
 
+- A big gap between training and test accuracy means a model memorised examples instead of learning patterns.
+- The unpruned Decision Tree had the biggest gap (8.9 pp). Pruning cut it to 3.2 pp and made the tree 76% smaller.
+- SVM (+2.3 pp) and Logistic Regression (+0.15 pp) generalise well. Naive Bayes is low on both sides: it underfits.
+
+> **Takeaway:** SVM's test score is trustworthy: it is not the result of memorising the training emails.
+
 ### Final verdict
 
-**Support Vector Machine (RBF kernel):** best during training and on the test emails, the fewest mistakes and false alarms, and a statistically real lead. Logistic Regression ranks emails almost as well with a far smaller model, so it is the sensible choice if speed or explainability matter more than accuracy.
+**Support Vector Machine (RBF kernel).** Best during training **and** on the test emails, the fewest mistakes (40), the fewest false alarms (21), and a lead that is statistically real. It is the model Spamurai uses as its final model.
 
-**Limits of this study:** results come from one 80 / 20 split (cross-validation agreeing makes split luck unlikely, not impossible); every model uses its default decision cut-off; and Spambase's legitimate emails come from one company's mailbox, so words like `hp` and `george` would not signal real mail for other people.
+**The trade-off.** SVM is larger (about 400 KB) and slower to score than Logistic Regression (about 6 KB), which ranks emails almost as well. If speed or explainability mattered more than accuracy, Logistic Regression would be the sensible choice. For a spam filter, losing fewer genuine emails is worth the extra size.
+
+**Limits of this study**
+- All results come from one 80 / 20 split. Cross-validation agreeing with the test results makes split luck unlikely, but not impossible.
+- Every model uses its default decision cut-off. Moving it would trade precision against recall.
+- Spambase's legitimate emails come from one company's mailbox, so words like "hp" and "george" strongly signal real mail here but would not for other people.
 
 ---
 
@@ -233,7 +302,7 @@ The unpruned Decision Tree had the biggest train–test gap (8.9 pp); pruning cu
 
 **How to use it:** choose the emails (sidebar, step 1), choose a model (step 2), then open the folder tabs. The *Download the SVM report* button gives a 5-page PDF of the evidence.
 
-*Streamlit's free tier puts apps to sleep after a period without visitors. If you see "This app has gone to sleep", click "Yes, get this app back up!" and it restarts in about a minute.*
+**If the app shows a "Zzzz" sleep screen:** Streamlit's free hosting pauses apps that have had no visitors for a while. Nothing is broken and nothing is lost. Click **Yes, get this app back up!**, wait about 1 minute while it restarts, and the app opens on the final-model results.
 
 ## Execution on BITS Virtual Lab
 
